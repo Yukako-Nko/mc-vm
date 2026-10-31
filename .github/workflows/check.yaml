@@ -1,0 +1,58 @@
+name: Proxy Checker
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: proxy-checker
+  cancel-in-progress: false
+
+jobs:
+  check-proxies:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run proxy checker
+        timeout-minutes: 40
+        env:
+          UV_THREADPOOL_SIZE: "64"
+        run: node check.js
+
+      - name: Verify output
+        run: |
+          echo "Listing proxy-list:"
+          ls -la proxy-list || true
+          echo "Counts:"
+          for f in proxy-list/*.txt; do
+            [ -f "$f" ] && echo "$f: $(wc -l < "$f") lines"
+          done
+          echo "Git status:"
+          git status --porcelain
+
+      - name: Commit & Push result (reset history)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout --orphan latest_branch
+          git add -f proxy-list
+          git commit -m "update alive proxies" || echo "No changes to commit"
+          git branch -D main || true
+          git branch -m main
+          git push -f origin main
